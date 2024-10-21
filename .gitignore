@@ -1,0 +1,11 @@
+# Ignore:
+build/*
+node_modules/*
+src/typings/*
+jsconfig.json
+jsconfig.json
+package.json
+package-lock.json
+
+
+ 
