@@ -139,5 +139,6 @@ Cost matrix characteristics:
 
 export function generateFlankerCostMatrix(flankers: Creep[]): CostMatrix {
   const matrix = new CostMatrix();
+  //Jordi tests
   return matrix;
 }
