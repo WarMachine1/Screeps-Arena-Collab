@@ -1,311 +1,229 @@
-import { findClosestByRange, getDirection, getObjectsByPrototype } from "game/utils";
-import { Creep, GameObject, Source, StructureContainer, StructureSpawn, Position } from "game/prototypes";
-import {
-  ATTACK,
-  BODYPART_COST,
-  CARRY,
-  ERR_NOT_IN_RANGE,
-  HEAL,
-  MOVE,
-  RANGED_ATTACK,
-  RESOURCE_ENERGY,
-  TOUGH,
-  WORK
-} from "game/constants";
-import { getCostOfCombatMob, getMob, getNearestChokePoint, isFirstTick } from "./common/globalFunctions";
+import { getObjectsByPrototype, getDirection, getTicks, findClosestByRange } from 'game/utils';
+import { searchPath } from 'game/path-finder';
+import { Creep, StructureSpawn, Source, StructureContainer, GameObject, Position } from 'game/prototypes';
+import { MOVE, WORK, CARRY, ATTACK, RANGED_ATTACK, HEAL, TOUGH, ERR_NOT_IN_RANGE, ERR_BUSY, RESOURCE_ENERGY, BODYPART_COST } from 'game/constants';
+import { isFirstTick } from "./common/globalFunctions";
 
-interface CustomCreep extends Creep {
-  // interface extends Class
-  role: string;
-  testFunc(num: number): number;
+enum CreepRole {
+    COLLECTOR = 'COLLECTOR',
+    WORKCOLLECTOR = 'WORKCOLLECTOR',
+    FIGHTER = 'FIGHTER',
+    RAIDER = 'RAIDER',
+    HEALER = 'HEALER'
 }
 
-// build defense creep first to start moving to chokepoint
-// build a tow creep to bring the defense creep to the chokepoint and then gather resources
-// build a sapper first to get enough energy to build a rampart & extension at chokepoint
-
-// 'fake class' for Harvester creeps ???
-function HarvesterCreep(creep: Creep): CustomCreep {
-  const cc = creep as CustomCreep;
-  cc.role = "Harvester";
-  cc.testFunc = function (num: number) {
-    return num * 2;
-  };
-  return cc;
+interface CustomCreep extends Creep { // interface extends Class
+    role: CreepRole;
+    flee(targets: (GameObject | Position)[], range: number): void;
+    //testFunc(num: number): number; // <- add a function
 }
 
-// 'fake class' for Harvester creeps ???
-function MoverCreep(creep: Creep): CustomCreep {
-  const cc = creep as CustomCreep;
-  cc.role = "Mover";
-  cc.testFunc = function (num: number) {
-    return num * 2;
-  };
-  return cc;
+function CustomCreep(creep: Creep, role: CreepRole): CustomCreep {
+    var cc = creep as CustomCreep;
+    cc.role = role;
+    cc.flee = (targets: (GameObject | Position)[], range: number) => { _flee(cc, targets, range) };
+    return cc;
 }
 
-// 'fake class' for fighter creeps ???
-function FighterCreep(creep: Creep): CustomCreep {
-  const cc = creep as CustomCreep;
-  cc.role = "Fighter";
-  cc.testFunc = function (num: number) {
-    return num * 3;
-  };
-  return cc;
+function _flee(creep: Creep, targets: (GameObject | Position)[], range: number) {
+    const result = searchPath(
+        creep,
+        targets.map(i => ({ pos: i, range })),
+        { flee: true } // flee option tries to get away from targets, but does not try to avoid range around target, also does not avoid walking onto other creeps
+    );
+    if (result.path.length > 0) {
+        const direction = getDirection(result.path[0].x - creep.x, result.path[0].y - creep.y);
+        creep.move(direction);
+    }
 }
 
-// 'fake class' for Harvester creeps ???
-function TowCreep(creep: Creep): CustomCreep {
-  const cc = creep as CustomCreep;
-  cc.role = "Tow";
-  cc.testFunc = function (num: number) {
-    return num * 2;
-  };
-  return cc;
-}
-
-// 'fake class' for fighter creeps ???
-function DefenseCreep(creep: Creep): CustomCreep {
-  const cc = creep as CustomCreep;
-  cc.role = "Defense";
-  cc.testFunc = function (num: number) {
-    return num * 3;
-  };
-  return cc;
-}
-
-// 'fake class' for fighter creeps ???
-function SapperCreep(creep: Creep): CustomCreep {
-  const cc = creep as CustomCreep;
-  cc.role = "Sapper";
-  cc.testFunc = function (num: number) {
-    return num * 3;
-  };
-  return cc;
-}
+// calculated parameters at the start
+const mySpawn = getObjectsByPrototype(StructureSpawn).find(i => i.my)!;
+const enemySpawn = getObjectsByPrototype(StructureSpawn).find(i => !i.my)!;
 
 // defined constants
 const maxBodyCost = 1000;
+const waitEngageTicks = 250;
+const fleeDistance = 5;
 const numberOfCollectors = 3;
-const numberOfSappers = 1;
-const numberOfTows = 1;
-const numberOfDefenseCreeps = 1;
-const collectorBody = [MOVE, CARRY, MOVE, CARRY, MOVE, CARRY, MOVE, CARRY, MOVE, CARRY];
-const fighterBody = [
-  MOVE,
-  MOVE,
-  MOVE,
-  MOVE,
-  MOVE,
-  MOVE,
-  MOVE,
-  MOVE,
-  ATTACK,
-  ATTACK,
-  ATTACK,
-  ATTACK,
-  ATTACK,
-  ATTACK,
-  MOVE,
-  MOVE
-];
-const defenseBody = [
-  RANGED_ATTACK,
-  RANGED_ATTACK,
-  RANGED_ATTACK,
-  RANGED_ATTACK,
-  RANGED_ATTACK,
-  RANGED_ATTACK,
-  MOVE,
-  MOVE
-];
-
-const sapperBody = [MOVE, MOVE, MOVE, MOVE, WORK, WORK, CARRY, WORK, WORK, CARRY, MOVE];
-
-const towBody = [MOVE, MOVE, MOVE, MOVE, WORK, WORK, CARRY, WORK, WORK, CARRY, WORK, WORK, CARRY, MOVE];
-
-// calculated parameters at the start
-const mySpawn = getObjectsByPrototype(StructureSpawn).find(i => i.my);
-const enemySpawn = getObjectsByPrototype(StructureSpawn).find(i => !i.my);
-let spawnOnRightSide = true;
-if (mySpawn) {
-  spawnOnRightSide = mySpawn.x > 50;
+const numberOfRaiders = 3;
+const creepBodies = {
+    [CreepRole.COLLECTOR]: [MOVE, CARRY],
+    [CreepRole.FIGHTER]: [MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, MOVE, MOVE],
+    [CreepRole.RAIDER]: [MOVE, MOVE, MOVE, MOVE, MOVE, RANGED_ATTACK, RANGED_ATTACK, RANGED_ATTACK, MOVE, MOVE, MOVE],
+    [CreepRole.WORKCOLLECTOR]: [MOVE, MOVE, MOVE, CARRY,CARRY,WORK, MOVE, MOVE],
+    [CreepRole.HEALER]: [MOVE, MOVE, MOVE, MOVE, HEAL, HEAL, MOVE]
 }
+const upperRight = {x:90, y:10};
+const upperLeft = {x:10, y:10};
+const lowerRight = {x:90, y:90};
+const lowerLeft = {x:10, y:90};
+const spawnOnRight = mySpawn.x > 50;
+const myTopChoke = spawnOnRight ? upperRight: upperLeft;
+const myBotChoke = spawnOnRight ? lowerRight: lowerLeft;
+const myChokes = [myTopChoke, myBotChoke]
+const enemyTopChoke = spawnOnRight ? upperLeft: upperRight;
+const enemyBotChoke = spawnOnRight ? lowerLeft: lowerRight;
+const enemyChokes = [enemyTopChoke, enemyBotChoke]
+const holdSpot = spawnOnRight ? {x:mySpawn.x-3, y:mySpawn.y}: {x:mySpawn.x+3, y:mySpawn.y};
+
 
 // State variables which will be kept up to date during execution, defined here to use in multiple functions
-let containers: StructureContainer[];
-let myCreeps: CustomCreep[] = [];
-let enemyCreeps: Creep[];
+var containers: StructureContainer[] = [];
+var creeps: Creep[] = [];
+var myCreeps: CustomCreep[] = []; //creeps are added at spawn, and removed if dead on state update
+var enemyCreeps: Creep[] = [];
 
 export function loop() {
-  spawnCreeps();
-  updateState();
+    firstTickSetup();
+    updateState();
+    runCreeps();
+    spawnCreeps();
+}
 
-  runCreeps();
+function firstTickSetup() {
+    if (isFirstTick()) {
+        for (const [cr, cb] of Object.entries(creepBodies)) {
+            if (bodyCost(cb) > maxBodyCost) {
+                console.log('WARN: bodycost exceeds spawn max energy: ' + cr + ', bodyCost: ' + bodyCost(cb));
+            }
+        }
+    }
+}
+
+function bodyCost(body: string[]): number {
+    let sum = 0;
+    for (let i in body)
+        sum += BODYPART_COST[body[i]];
+    return sum;
 }
 
 function updateState() {
-  containers = getObjectsByPrototype(StructureContainer);
-  enemyCreeps = getObjectsByPrototype(Creep).filter(creep => !creep.my);
-
-  // just some logging right now, TODO: remove creeps from myCreeps when they are dead.
-  for (const creep of myCreeps) {
-    console.log(creep.role);
-    console.log(creep.testFunc(1));
-  }
+    containers = getObjectsByPrototype(StructureContainer); // get all current containers
+    creeps = getObjectsByPrototype(Creep); // get all creeps in the game
+    enemyCreeps = creeps.filter(c => !c.my); // get all enemy creeps in the game
+    // check if some of my creeps are dead, and remove from myCreeps
+    const creepIDs = new Set(creeps.map(c => c.id));
+    myCreeps = myCreeps.filter(c => creepIDs.has(c.id)); 
 }
 
+
 function runCreeps() {
-  const nonEmptyContainers = containers.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0);
+    var targets: (Creep | StructureSpawn | CustomCreep)[];
+    var target: (Creep | StructureSpawn | CustomCreep);
+    const currentTick = getTicks();
 
-  for (const creep of myCreeps) {
-    // instead of checking type here based on body parts TODO: use CustomCreep.role
-    if (creep.role === "Harvester") {
-      // check if the array of bodyparts contains a carry part.
+    for (var creep of myCreeps) {
+        // instead of checking type here based on body parts TODO: use CustomCreep.role
+        switch (creep.role) {
+            case CreepRole.COLLECTOR:
+                if (creep.store.getFreeCapacity(RESOURCE_ENERGY)) {
+                    var nonEmptyContainers = containers.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0);
+                    var targetContainer = creep.findClosestByPath(nonEmptyContainers);
+                    if (targetContainer) {
+                        if (creep.withdraw(targetContainer, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                            creep.moveTo(targetContainer);
+                        }
+                    }
+                } else if (mySpawn) {
+                    if (creep.transfer(mySpawn, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                        creep.moveTo(mySpawn);
+                    }
+                }
+                break;
 
-      if (creep.store.getFreeCapacity(RESOURCE_ENERGY)) {
-        const targetContainer = creep.findClosestByPath(nonEmptyContainers);
-        if (targetContainer) {
-          if (creep.withdraw(targetContainer, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-            creep.moveTo(targetContainer);
-          }
+            case CreepRole.FIGHTER:
+                if (currentTick <= waitEngageTicks) {
+                    creep.moveTo(holdSpot);
+                    break;
+                }
+                targets = enemyCreeps;
+                if (enemySpawn) {
+                    targets = targets.concat(enemySpawn);
+                }
+                target = creep.findClosestByPath(targets);
+
+                if (target) {
+                    if (creep.attack(target) == ERR_NOT_IN_RANGE) {
+                        creep.moveTo(target);
+                    }
+                }
+                break;
+
+            case CreepRole.RAIDER:
+                if (currentTick <= waitEngageTicks) {
+                    creep.moveTo(holdSpot);
+                    break;
+                }
+                var canAttack = creep.body.some(bp => (bp.hits > 0) && (bp.type == RANGED_ATTACK))
+                targets = enemyCreeps;
+                if (enemySpawn) {
+                    targets = targets.concat(enemySpawn);
+                }
+                target = creep.findClosestByPath(targets);
+
+                if (target) {
+                    var target_range = creep.getRangeTo(target);
+                    creep.rangedAttack(target); // always try to attack
+
+                    if (target_range > 3 && canAttack) { // if closest target is far, and can attack, move to it
+                        creep.moveTo(target);
+                    } else if (target_range < 3 || !canAttack) { // if closest target is too close, or it cannot attack, avoid all enemies
+                        creep.flee(enemyCreeps, fleeDistance);
+                    }
+                }
+                break;
+
+            case CreepRole.HEALER:
+                if (currentTick <= waitEngageTicks) {
+                    creep.moveTo(holdSpot);
+                    break;
+                }
+                targets = myCreeps.filter(c => (c.id != creep.id) && ((c.role == CreepRole.FIGHTER) || (c.role == CreepRole.RAIDER)) );
+                var closestEnemy = creep.findClosestByRange(enemyCreeps);
+                var healtarget = creep.findClosestByRange(myCreeps.filter(c => c.hits < c.hitsMax))
+
+                creep.rangedHeal(healtarget); // allways try to heal
+                creep.heal(healtarget); // melee heal will overwrite ranged heal if available, due to priority
+            
+                // avoid enemies if they are too close
+                if (closestEnemy && (creep.getRangeTo(closestEnemy) < 4)){
+                    creep.flee(enemyCreeps, fleeDistance);
+                }else if(healtarget){ // move to the closest damaged creep if it exists
+                    creep.moveTo(healtarget);
+                }else{  // otherwise move to the friendly creep which is the farthest towards the enemySpawn
+                    target = enemySpawn.findClosestByPath(targets);
+                    if (target) {
+                        creep.moveTo(target);
+                    }    
+                }
         }
-      } else if (mySpawn) {
-        if (creep.transfer(mySpawn, RESOURCE_ENERGY) === ERR_NOT_IN_RANGE) {
-          creep.moveTo(mySpawn);
-        }
-      }
-    } else if (creep.role === "Tow") {
-      // If no defense go to mySpawn
-      if (numberOfDefenseCreeps <= 0) {
-        creep.moveTo(mySpawn ?? {x:50, y:50});
-      } else {
-        const dCreep = myCreeps.find(c => c.role === "Defense");
-        const sCreep = myCreeps.find(c => c.role === "Sapper");
-        if (sCreep) {
-          if (creep.pull(sCreep) === ERR_NOT_IN_RANGE) {
-            creep.moveTo(sCreep);
-          } else {
-            const nearestChokePoint = getNearestChokePoint(creep, spawnOnRightSide);
-            creep.moveTo(enemySpawn ?? {x:50, y:50});
-            sCreep.moveTo(creep);
-            if (dCreep) {
-              if (sCreep.pull(dCreep) === ERR_NOT_IN_RANGE) {
-                sCreep.moveTo(dCreep);
-              }
-            }
-          }
-        } else if (dCreep) {
-          if (creep.pull(dCreep) === ERR_NOT_IN_RANGE) {
-            creep.moveTo(dCreep);
-          } else {
-            const nearestChokePoint = getNearestChokePoint(creep, spawnOnRightSide);
-            creep.moveTo(enemySpawn ?? {x:50, y:50});
-            dCreep.moveTo(creep);
-          }
-        }
-      }
-      // If defense exists, attempt to pull, and move towards defense creep if out of range
-      // If not out of range, determine chokepoints, and move to closest one
-    } else if (creep.role === "Defense") {
-      // Determine chokepoints, and move to closest one
-      // If further than 2 squares than chokepoint, move towards tow
-      // Else, move to nearest chokepoint
-    } else if (creep.role === "Fighter") {
-      let targets: (Creep | StructureSpawn)[];
-      targets = enemyCreeps;
-      if (enemySpawn) {
-        targets = targets.concat(enemySpawn);
-      }
-      const target = creep.findClosestByRange(targets);
-
-      const myArmedCreeps = myCreeps.filter(c => c.body.some(i => i.type === ATTACK));
-
-      if (target) {
-        if (
-          creep.getRangeTo(target) < 15 &&
-          enemyCreeps.filter(c =>
-            c.body.some(part => part.type === ATTACK || part.type === RANGED_ATTACK || part.type === HEAL)
-          ).length > 0
-        ) {
-          /* console.log("Cost of my mob: ", getCostOfCombatMob(creep, myCreeps, 2));
-          if (enemyCreeps.length > 0) {
-            console.log("Cost of their mob: ", getCostOfCombatMob(target, enemyCreeps, 2));
-          }*/
-          if (getCostOfCombatMob(creep, myCreeps, 2) <= 1.1 * getCostOfCombatMob(target, enemyCreeps, 2)) {
-            // get myArmedCreeps that are not in my mob
-            const filteredCreeps = myCreeps.filter(c =>
-              c.body.some(part => part.type === ATTACK || part.type === RANGED_ATTACK || part.type === HEAL)
-            );
-
-            // Get the mob the input creep is part of
-            const mob = getMob(creep, filteredCreeps, 2) as Creep[];
-
-            const myArmedCreepsNotInMob = myArmedCreeps.filter(oA => !mob.some(oB => oB.id === oA.id));
-
-            const closestArmedCreep = creep.findClosestByRange(myArmedCreepsNotInMob);
-            if (closestArmedCreep) {
-              /* console.log("Retreating: Moving to friendly creep at ", closestArmedCreep.x, ",", closestArmedCreep.y);
-              console.log("MyArmedCreeps:");
-              myArmedCreeps.forEach(element => console.log("x: ", element.x, " y: ", element.y));
-              console.log("");
-              console.log("My Mob:");
-              mob.forEach(element => console.log("x: ", element.x, " y: ", element.y));
-              console.log("");
-              console.log("Armed Creeps not in My Mob:");
-              myArmedCreepsNotInMob.forEach(element => console.log("x: ", element.x, " y: ", element.y)); */
-              creep.moveTo({ x: closestArmedCreep.x, y: closestArmedCreep.y });
-            } else {
-              console.log("No armed creep found within range.");
-            }
-          } else {
-            if (creep.attack(target) === ERR_NOT_IN_RANGE) {
-              creep.moveTo(target);
-            }
-          }
-        } else {
-          if (creep.attack(target) === ERR_NOT_IN_RANGE) {
-            creep.moveTo(target);
-          }
-        }
-      }
     }
-  }
 }
 
 function spawnCreeps() {
-  // instead of checking type here based on body parts TODO: use CustomCreep.role
-  myCreeps = myCreeps.filter(c => c.exists);
-  const numCarryCreeps = myCreeps.filter(c => c.body.some(i => i.type === CARRY)).length;
-  const numDefenseCreeps = myCreeps.filter(c => c.role === "Defense").length;
-  const numSapperCreeps = myCreeps.filter(c => c.role === "Sapper").length;
-  const numTowCreeps = myCreeps.filter(c => c.role === "Tow").length;
-  if (mySpawn) {
-    if (numCarryCreeps < numberOfCollectors) {
-      const c = mySpawn.spawnCreep(collectorBody).object;
-      if (c) {
-        myCreeps.push(HarvesterCreep(c));
-      }
-    } else if (numDefenseCreeps < numberOfDefenseCreeps) {
-      const c = mySpawn.spawnCreep(defenseBody).object;
-      if (c) {
-        myCreeps.push(DefenseCreep(c));
-      }
-    } else if (numTowCreeps < numberOfTows) {
-      const c = mySpawn.spawnCreep(towBody).object;
-      if (c) {
-        myCreeps.push(TowCreep(c));
-      }
-    } else if (numTowCreeps < numberOfSappers) {
-      const c = mySpawn.spawnCreep(sapperBody).object;
-      if (c) {
-        myCreeps.push(SapperCreep(c));
-      }
-    } else {
-      /* const c = mySpawn.spawnCreep(fighterBody).object;
-      if (c) {
-        myCreeps.push(FighterCreep(c));
-      }*/
+    if (!mySpawn.spawning) { // need to patch the interface for StructureSpawn in typings in order to have access to spawning.
+        var makeRole: CreepRole | null = null;
+        
+        if (myCreeps.filter(c => c.role == CreepRole.COLLECTOR).length < numberOfCollectors) {
+            makeRole = CreepRole.COLLECTOR;
+        } else if (myCreeps.filter(c => c.role == CreepRole.RAIDER).length < numberOfRaiders) {
+            makeRole = CreepRole.RAIDER;
+        } else if((myCreeps.filter(c => (c.role == CreepRole.FIGHTER) || (c.role == CreepRole.RAIDER)).length > 5) && (myCreeps.filter(c => c.role == CreepRole.HEALER).length < 2)){
+            makeRole = CreepRole.HEALER; // if there are atleast 5 combat creeps, and less than 2 healers, make a healer creep
+        }else{
+            makeRole = CreepRole.FIGHTER;
+        }
+
+        spawnCustomCreep(mySpawn, makeRole)
     }
-  }
+}
+
+function spawnCustomCreep(spawn: StructureSpawn, creepRole: CreepRole) {
+    var c = spawn.spawnCreep(creepBodies[creepRole])
+    if (c.object) {
+        console.log('Spawning Creep:' + creepRole + ', cost: ' + bodyCost(creepBodies[creepRole]) + ', remaining energy: ' + ((spawn.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) - bodyCost(creepBodies[creepRole])));
+        myCreeps.push(CustomCreep(c.object, creepRole));
+    }
+    return c;
 }
