@@ -2,40 +2,8 @@ import { getObjectsByPrototype, getDirection, getTicks, findClosestByRange } fro
 import { Creep, StructureSpawn, Source, StructureContainer, GameObject, Position } from 'game/prototypes';
 import { MOVE, WORK, CARRY, ATTACK, RANGED_ATTACK, HEAL, TOUGH, ERR_NOT_IN_RANGE, ERR_BUSY, RESOURCE_ENERGY, BODYPART_COST } from 'game/constants';
 import { isFirstTick, bodyCost, generateFlankerCostMatrix, visualizeCostMatrix } from "./common/globalFunctions";
+import { searchPath } from 'game/path-finder';
 import { CreepRole, CustomCreep } from "./common/expandCreep";
-
-enum CreepRole {
-    COLLECTOR = 'COLLECTOR',
-    WORKCOLLECTOR = 'WORKCOLLECTOR',
-    FIGHTER = 'FIGHTER',
-    RAIDER = 'RAIDER',
-    HEALER = 'HEALER'
-}
-
-interface CustomCreep extends Creep { // interface extends Class
-    role: CreepRole;
-    flee(targets: (GameObject | Position)[], range: number): void;
-    //testFunc(num: number): number; // <- add a function
-}
-
-function CustomCreep(creep: Creep, role: CreepRole): CustomCreep {
-    var cc = creep as CustomCreep;
-    cc.role = role;
-    cc.flee = (targets: (GameObject | Position)[], range: number) => { _flee(cc, targets, range) };
-    return cc;
-}
-
-function _flee(creep: Creep, targets: (GameObject | Position)[], range: number) {
-    const result = searchPath(
-        creep,
-        targets.map(i => ({ pos: i, range })),
-        { flee: true } // flee option tries to get away from targets, but does not try to avoid range around target, also does not avoid walking onto other creeps
-    );
-    if (result.path.length > 0) {
-        const direction = getDirection(result.path[0].x - creep.x, result.path[0].y - creep.y);
-        creep.move(direction);
-    }
-}
 
 // calculated parameters at the start
 const mySpawn = getObjectsByPrototype(StructureSpawn).find(i => i.my)!;
