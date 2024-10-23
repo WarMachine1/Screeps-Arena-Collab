@@ -1,8 +1,8 @@
 import { getObjectsByPrototype, getDirection, getTicks, findClosestByRange } from 'game/utils';
-import { searchPath } from 'game/path-finder';
 import { Creep, StructureSpawn, Source, StructureContainer, GameObject, Position } from 'game/prototypes';
 import { MOVE, WORK, CARRY, ATTACK, RANGED_ATTACK, HEAL, TOUGH, ERR_NOT_IN_RANGE, ERR_BUSY, RESOURCE_ENERGY, BODYPART_COST } from 'game/constants';
-import { isFirstTick, generateFlankerCostMatrix, visualizeCostMatrix } from "./common/globalFunctions";
+import { isFirstTick, bodyCost, generateFlankerCostMatrix, visualizeCostMatrix } from "./common/globalFunctions";
+import { CreepRole, CustomCreep } from "./common/expandCreep";
 
 enum CreepRole {
     COLLECTOR = 'COLLECTOR',
@@ -48,11 +48,11 @@ const fleeDistance = 5;
 const numberOfCollectors = 3;
 const numberOfRaiders = 3;
 const creepBodies = {
-    [CreepRole.COLLECTOR]: [MOVE, CARRY],
-    [CreepRole.FIGHTER]: [MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, MOVE, MOVE],
-    [CreepRole.RAIDER]: [MOVE, MOVE, MOVE, MOVE, MOVE, RANGED_ATTACK, RANGED_ATTACK, RANGED_ATTACK, MOVE, MOVE, MOVE],
-    [CreepRole.WORKCOLLECTOR]: [MOVE, MOVE, MOVE, CARRY,CARRY,WORK, MOVE, MOVE],
-    [CreepRole.HEALER]: [MOVE, MOVE, MOVE, MOVE, HEAL, HEAL, MOVE]
+    [CreepRole.COLLECTOR]:      [MOVE, CARRY],
+    [CreepRole.FIGHTER]:        [MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, MOVE, MOVE],
+    [CreepRole.RAIDER]:         [MOVE, MOVE, MOVE, MOVE, MOVE, RANGED_ATTACK, RANGED_ATTACK, RANGED_ATTACK, MOVE, MOVE, MOVE],
+    [CreepRole.WORKCOLLECTOR]:  [MOVE, MOVE, MOVE, CARRY, CARRY,WORK, MOVE, MOVE],
+    [CreepRole.HEALER]:         [MOVE, MOVE, MOVE, MOVE, HEAL, HEAL, MOVE]
 }
 const upperRight = {x:90, y:10};
 const upperLeft = {x:10, y:10};
@@ -93,13 +93,6 @@ function firstTickSetup() {
     }
 }
 
-function bodyCost(body: string[]): number {
-    let sum = 0;
-    for (let i in body)
-        sum += BODYPART_COST[body[i]];
-    return sum;
-}
-
 function updateState() {
     containers = getObjectsByPrototype(StructureContainer); // get all current containers
     creeps = getObjectsByPrototype(Creep); // get all creeps in the game
@@ -109,13 +102,14 @@ function updateState() {
     myCreeps = myCreeps.filter(c => creepIDs.has(c.id)); 
 }
 
-
 function runCreeps() {
     var targets: (Creep | StructureSpawn | CustomCreep)[];
     var target: (Creep | StructureSpawn | CustomCreep);
     const currentTick = getTicks();
 
     for (var creep of myCreeps) {
+        console.log(creep.id, creep.role, creep.getTicksPerMove());
+
         // instead of checking type here based on body parts TODO: use CustomCreep.role
         switch (creep.role) {
             case CreepRole.COLLECTOR:
