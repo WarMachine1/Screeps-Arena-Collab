@@ -58,7 +58,7 @@ function firstTickSetup() {
                 const bodyParts = creepBodies[role]; // Get the body part array for the role
                 
                 if (bodyCost(bodyParts) > maxBodyCost) {
-                    console.log('WARN: bodycost exceeds spawn max energy: ' + cr + ', bodyCost: ' + bodyCost(cb));
+                    console.log('WARN: bodycost exceeds spawn max energy: ' + role + ', bodyCost: ' + bodyCost(bodyParts));
                 }
             }
         }
