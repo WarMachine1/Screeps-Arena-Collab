@@ -43,8 +43,8 @@ var myCreeps: CustomCreep[] = []; //creeps are added at spawn, and removed if de
 var enemyCreeps: Creep[] = [];
 
 export function loop() {
-    const costMatrix = generateFlankerCostMatrix(myCreeps, enemyCreeps, 2);
-    visualizeCostMatrix(costMatrix);
+    //const costMatrix = generateFlankerCostMatrix(myCreeps, enemyCreeps, 2);
+    //visualizeCostMatrix(costMatrix);
     firstTickSetup();
     updateState();
     runCreeps();
@@ -54,20 +54,11 @@ export function loop() {
 function firstTickSetup() {
     if (isFirstTick()) {
         for (const role in creepBodies) {
-            if (creepBodies.hasOwnProperty(role)) {
-                const bodyParts = creepBodies[role]; // Get the body part array for the role
-                
-                if (bodyCost(bodyParts) > maxBodyCost) {
-                    console.log('WARN: bodycost exceeds spawn max energy: ' + role + ', bodyCost: ' + bodyCost(bodyParts));
-                }
+            const bodyParts = creepBodies[role as CreepRole]; // Get the body part array for the role
+            if (bodyCost(bodyParts) > maxBodyCost) {
+                console.log('WARN: bodycost exceeds spawn max energy: ' + role + ', bodyCost: ' + bodyCost(bodyParts));
             }
         }
-        
-        /*for (const [cr, cb] of Object.entries(creepBodies)) {
-            if (bodyCost(cb) > maxBodyCost) {
-                console.log('WARN: bodycost exceeds spawn max energy: ' + cr + ', bodyCost: ' + bodyCost(cb));
-            }
-        }*/
     }
 }
 
@@ -86,7 +77,6 @@ function runCreeps() {
     const currentTick = getTicks();
 
     for (var creep of myCreeps) {
-        console.log(creep.id, creep.role, creep.getTicksPerMove());
 
         // instead of checking type here based on body parts TODO: use CustomCreep.role
         switch (creep.role) {
