@@ -53,11 +53,21 @@ export function loop() {
 
 function firstTickSetup() {
     if (isFirstTick()) {
-        for (const [cr, cb] of Object.entries(creepBodies)) {
+        for (const role in creepBodies) {
+            if (creepBodies.hasOwnProperty(role)) {
+                const bodyParts = creepBodies[role]; // Get the body part array for the role
+                
+                if (bodyCost(bodyParts) > maxBodyCost) {
+                    console.log('WARN: bodycost exceeds spawn max energy: ' + cr + ', bodyCost: ' + bodyCost(cb));
+                }
+            }
+        }
+        
+        /*for (const [cr, cb] of Object.entries(creepBodies)) {
             if (bodyCost(cb) > maxBodyCost) {
                 console.log('WARN: bodycost exceeds spawn max energy: ' + cr + ', bodyCost: ' + bodyCost(cb));
             }
-        }
+        }*/
     }
 }
 
