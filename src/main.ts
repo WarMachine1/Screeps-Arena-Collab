@@ -2,7 +2,7 @@ import { getObjectsByPrototype, getDirection, getTicks, findClosestByRange } fro
 import { searchPath } from 'game/path-finder';
 import { Creep, StructureSpawn, Source, StructureContainer, GameObject, Position } from 'game/prototypes';
 import { MOVE, WORK, CARRY, ATTACK, RANGED_ATTACK, HEAL, TOUGH, ERR_NOT_IN_RANGE, ERR_BUSY, RESOURCE_ENERGY, BODYPART_COST } from 'game/constants';
-import { isFirstTick } from "./common/globalFunctions";
+import { isFirstTick, generateFlankerCostMatrix, visualizeCostMatrix } from "./common/globalFunctions";
 
 enum CreepRole {
     COLLECTOR = 'COLLECTOR',
@@ -75,6 +75,8 @@ var myCreeps: CustomCreep[] = []; //creeps are added at spawn, and removed if de
 var enemyCreeps: Creep[] = [];
 
 export function loop() {
+    const costMatrix = generateFlankerCostMatrix(myCreeps, enemyCreeps, 2);
+    visualizeCostMatrix(costMatrix);
     firstTickSetup();
     updateState();
     runCreeps();
