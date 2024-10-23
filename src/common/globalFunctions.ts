@@ -12,19 +12,20 @@ import {
   TOUGH,
   WORK
 } from "game/constants";
-import { Creep, GameObject } from "game/prototypes";
+import { Creep, GameObject, BodyPartType } from "game/prototypes";
 import { findInRange, getTicks } from "game/utils";
 import { CostMatrix } from "game/path-finder";
+
+export const MAXTICKSPERMOVE = 1000; // If a creep has no move body parts left, this value is used for the number of ticks it needs to move.
 
 export function isFirstTick(): boolean {
   return getTicks() === 1;
 }
 
-export function bodyCost(body: number[]): number {
+export function bodyCost(body: BodyPartType[]): number {
   let sum = 0;
-  for (const i of body) {
-    sum += body[i];
-  }
+  for (let i in body)
+      sum += BODYPART_COST[body[i]];
   return sum;
 }
 
@@ -37,6 +38,21 @@ export function getCreepBodyCost(creep: Creep): number {
     return totalCost + (BODYPART_COST[part] || 0);
   }, 0);
 }
+
+export function getTicksPerMove(body: BodyPartType[], currentHits?: number): {plain: number, swamp: number} {
+  let missingHits = 0;
+  let livingBody = body;
+  if (currentHits){
+    missingHits = body.length*100 - currentHits;
+    livingBody = body.slice(-Math.floor(missingHits/100)); 
+  }
+  let nMoveParts = livingBody.filter(a => a == MOVE).length;
+  let nOtherParts = livingBody.length - nMoveParts
+
+  return {plain: Math.max(Math.min(Math.ceil(( (nOtherParts*2)  / (nMoveParts*2) )),MAXTICKSPERMOVE),1), 
+          swamp: Math.max(Math.min(Math.ceil(( (nOtherParts*10) / (nMoveParts*2) )),MAXTICKSPERMOVE),1)};
+}
+
 
 export function findMostDamagedCreep(damagedCreeps: Creep[]): Creep | null {
   let maxDamage = 0;
@@ -56,9 +72,7 @@ export function findMostDamagedCreep(damagedCreeps: Creep[]): Creep | null {
 export function getWithinRange(target: GameObject, objects: GameObject[], range: number): GameObject[] {
   const targetX = target.x;
   const targetY = target.y;
-
   const objectsWithinRange = objects.filter(o => Math.abs(targetX - o.x) <= range && Math.abs(targetY - o.y) <= range);
-
   return objectsWithinRange;
 }
 
