@@ -34,12 +34,6 @@ export function getCreepBodyCost(creep: Creep): number {
   // Extract body parts from the creep object
   const bodyParts = creep.body.map(part => part.type);
   return bodyCost(bodyParts);
-  /*
-  // Sum up the cost of each body part
-  return bodyParts.reduce((totalCost, part) => {
-    return totalCost + (BODYPART_COST[part] || 0);
-  }, 0);
-  */
 }
 
 export function getTicksPerMove(body: BodyPartType[], currentHits?: number): {plain: number, swamp: number} {
@@ -52,8 +46,8 @@ export function getTicksPerMove(body: BodyPartType[], currentHits?: number): {pl
   let nMoveParts = livingBody.filter(a => a == MOVE).length;
   let nOtherParts = livingBody.length - nMoveParts
 
-  return {plain: Math.max(Math.min(Math.ceil(( (nOtherParts*2)  / (nMoveParts*2) )),MAXTICKSPERMOVE),1), 
-          swamp: Math.max(Math.min(Math.ceil(( (nOtherParts*10) / (nMoveParts*2) )),MAXTICKSPERMOVE),1)};
+  return {plain: Math.max(Math.min(Math.ceil(( (nOtherParts*2)  / (nMoveParts*2) )), MAXTICKSPERMOVE),1), 
+          swamp: Math.max(Math.min(Math.ceil(( (nOtherParts*10) / (nMoveParts*2) )), MAXTICKSPERMOVE),1)};
 }
 
 

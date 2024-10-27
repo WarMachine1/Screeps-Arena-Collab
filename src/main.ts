@@ -1,5 +1,5 @@
-import { getObjectsByPrototype, getDirection, getTicks, findClosestByRange } from 'game/utils';
-import { Creep, StructureSpawn, Source, StructureContainer, GameObject, Position } from 'game/prototypes';
+import { getObjectsByPrototype, getDirection, getTicks, findClosestByRange, createConstructionSite } from 'game/utils';
+import { Creep, StructureSpawn, Source, StructureContainer, GameObject, Position, ConstructionSite, StructureRampart } from 'game/prototypes';
 import { MOVE, WORK, CARRY, ATTACK, RANGED_ATTACK, HEAL, TOUGH, ERR_NOT_IN_RANGE, ERR_BUSY, RESOURCE_ENERGY, BODYPART_COST } from 'game/constants';
 import { isFirstTick, bodyCost, generateFlankerCostMatrix, visualizeCostMatrix } from "./common/globalFunctions";
 import { searchPath } from 'game/path-finder';
@@ -17,9 +17,10 @@ const numberOfCollectors = 3;
 const numberOfRaiders = 3;
 const creepBodies = {
     [CreepRole.COLLECTOR]:      [MOVE, CARRY],
+    [CreepRole.ROAMCOLLECTOR]:  [MOVE, CARRY, MOVE, CARRY],
+    [CreepRole.WORKER]:         [MOVE, MOVE, MOVE, CARRY, CARRY,WORK, MOVE, MOVE],
     [CreepRole.FIGHTER]:        [MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, MOVE, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, ATTACK, MOVE, MOVE],
     [CreepRole.RAIDER]:         [MOVE, MOVE, MOVE, MOVE, MOVE, RANGED_ATTACK, RANGED_ATTACK, RANGED_ATTACK, MOVE, MOVE, MOVE],
-    [CreepRole.WORKCOLLECTOR]:  [MOVE, MOVE, MOVE, CARRY, CARRY,WORK, MOVE, MOVE],
     [CreepRole.HEALER]:         [MOVE, MOVE, MOVE, MOVE, HEAL, HEAL, MOVE]
 }
 const upperRight = {x:90, y:10};
@@ -38,8 +39,10 @@ const holdSpot = spawnOnRight ? {x:mySpawn.x-3, y:mySpawn.y}: {x:mySpawn.x+3, y:
 
 // State variables which will be kept up to date during execution, defined here to use in multiple functions
 var containers: StructureContainer[] = [];
+var myConstructionSites: ConstructionSite[] = [];
 var creeps: Creep[] = [];
 var myCreeps: CustomCreep[] = []; //creeps are added at spawn, and removed if dead on state update
+var mySpawnedCreepCount = 0;
 var enemyCreeps: Creep[] = [];
 
 export function loop() {
@@ -53,7 +56,9 @@ export function loop() {
 
 function firstTickSetup() {
     if (isFirstTick()) {
-        console.log('Starting up!')
+        console.log('Starting up!');
+        let constructionSite = createConstructionSite(mySpawn, StructureRampart);
+        console.log('Placed Spawn Rampart, x:', mySpawn.x, ', y:', mySpawn.y );
 
         for (const role in creepBodies) {
             const bodyParts = creepBodies[role as CreepRole]; // Get the body part array for the role
@@ -66,6 +71,7 @@ function firstTickSetup() {
 
 function updateState() {
     containers = getObjectsByPrototype(StructureContainer); // get all current containers
+    myConstructionSites = getObjectsByPrototype(ConstructionSite).filter(c => c.my);
     creeps = getObjectsByPrototype(Creep); // get all creeps in the game
     enemyCreeps = creeps.filter(c => !c.my); // get all enemy creeps in the game
     // check if some of my creeps are dead, and remove from myCreeps
@@ -74,27 +80,49 @@ function updateState() {
 }
 
 function runCreeps() {
-    var targets: (Creep | StructureSpawn | CustomCreep)[];
-    var target: (Creep | StructureSpawn | CustomCreep);
+    var targets: (Creep | StructureSpawn | CustomCreep | ConstructionSite)[];
+    var target: (Creep | StructureSpawn | CustomCreep | ConstructionSite);
     const currentTick = getTicks();
 
     for (var creep of myCreeps) {
+        // Creep behaviours:
+        // Collector: Will look for nearest non-empty container, and deposit energy into the spawn
+            // TODO: Flee enemies,  if all 3 starting containers are empty, changes role to Roam Collector
+        // Roam Collector: Will look for nearest non-base container (ticksToDecay != null), and deposit in spawn
+            // TODO: Deposit in extension, withdraw and drop energy on ground before expiration of container, Flee enemies
+        // Worker: Gathers energy from nearest non-empty container, and builds nearest construction site, if there are no construction sites behaves same as a roam collector.
+            // TODO: 
+        // Fighter: Attacks nearest hostile creep
+            // TODO: Attack lowest health enemy in range
+        // Raider: Ranged attacker, will try to stay at range 3 of the closest enemy
+            // TODO: Attack Lowest health enemy in range
+        // Healer: Heals healer/attack creeps, will move to closest damaged creep, otherwise creep which is closest to hostile spawn, also flees from enemies
 
-        // instead of checking type here based on body parts TODO: use CustomCreep.role
         switch (creep.role) {
             case CreepRole.COLLECTOR:
-                if (creep.store.getFreeCapacity(RESOURCE_ENERGY)) {
-                    var nonEmptyContainers = containers.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0);
-                    var targetContainer = creep.findClosestByPath(nonEmptyContainers);
-                    if (targetContainer) {
-                        if (creep.withdraw(targetContainer, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-                            creep.moveTo(targetContainer);
+                creep.collect(mySpawn, containers.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0));
+                break;
+
+            case CreepRole.ROAMCOLLECTOR:
+                creep.collect(mySpawn, containers.filter(c => ((c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0 ) && (c.ticksToDecay != null) ));
+                break;
+
+            case CreepRole.WORKER:
+                if (myConstructionSites.length > 0){
+                    if (creep.store.getUsedCapacity(RESOURCE_ENERGY) == 0) {
+                        creep.collect(mySpawn, containers.filter(c => ((c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0 )));
+                    }else{
+                        target = creep.findClosestByRange(myConstructionSites);
+                        if(target){
+                            if(creep.build(target) == ERR_NOT_IN_RANGE){
+                                creep.moveTo(target);
+                            }
                         }
+                        // also try to withdraw extra energy from nearest container
+                        creep.withdraw(creep.findClosestByRange(containers.filter(c => ((c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0 ))), RESOURCE_ENERGY);
                     }
-                } else if (mySpawn) {
-                    if (creep.transfer(mySpawn, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
-                        creep.moveTo(mySpawn);
-                    }
+                }else{
+                    creep.collect(mySpawn, containers.filter(c => ((c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0 ) && (c.ticksToDecay != null) ));
                 }
                 break;
 
@@ -167,10 +195,37 @@ function runCreeps() {
     }
 }
 
+
 function spawnCreeps() {
     if (!mySpawn.spawning) { // need to patch the interface for StructureSpawn in typings in order to have access to spawning.
+        // Current logic
+        // creep 1,2,3    COLLECTOR
+        // creep 4      WORKER
+        // creep 5,6    ROAMCOLLECTOR
+        // creep 7,8,9  RAIDER
+        // creep 10,11   FIGHTER
+        // creep 12,13  HEALER
+        // creep ...    FIGHTER
+
         var makeRole: CreepRole | null = null;
-        
+        if(mySpawnedCreepCount < 3){
+            makeRole = CreepRole.COLLECTOR;
+        }else if(mySpawnedCreepCount < 4){
+            makeRole = CreepRole.WORKER;
+        }else if(mySpawnedCreepCount < 6){
+            makeRole = CreepRole.ROAMCOLLECTOR;
+        }else if(mySpawnedCreepCount < 9){
+            makeRole = CreepRole.RAIDER;
+        }else if(mySpawnedCreepCount < 11){
+            makeRole = CreepRole.FIGHTER;
+        }else if(mySpawnedCreepCount < 13){
+            makeRole = CreepRole.HEALER;
+        }else{
+            makeRole = CreepRole.FIGHTER;
+        }
+
+        spawnCustomCreep(mySpawn, makeRole)
+        /*
         if (myCreeps.filter(c => c.role == CreepRole.COLLECTOR).length < numberOfCollectors) {
             makeRole = CreepRole.COLLECTOR;
         } else if (myCreeps.filter(c => c.role == CreepRole.RAIDER).length < numberOfRaiders) {
@@ -179,9 +234,7 @@ function spawnCreeps() {
             makeRole = CreepRole.HEALER; // if there are atleast 5 combat creeps, and less than 2 healers, make a healer creep
         }else{
             makeRole = CreepRole.FIGHTER;
-        }
-
-        spawnCustomCreep(mySpawn, makeRole)
+        }*/
     }
 }
 
@@ -190,6 +243,7 @@ function spawnCustomCreep(spawn: StructureSpawn, creepRole: CreepRole) {
     if (c.object) {
         console.log('Spawning Creep:' + creepRole + ', cost: ' + bodyCost(creepBodies[creepRole]) + ', remaining energy: ' + ((spawn.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) - bodyCost(creepBodies[creepRole])));
         myCreeps.push(CustomCreep(c.object, creepRole));
+        mySpawnedCreepCount += 1;
     }
     return c;
 }

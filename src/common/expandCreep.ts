@@ -1,6 +1,6 @@
 import { getDirection } from 'game/utils';
 import { searchPath } from 'game/path-finder';
-import { Creep, GameObject, Position, StructureSpawn, BodyPartType } from 'game/prototypes';
+import { Creep, GameObject, Position, StructureSpawn, BodyPartType, StructureContainer } from 'game/prototypes';
 import { MOVE, WORK, CARRY, ATTACK, RANGED_ATTACK, HEAL, TOUGH, ERR_NOT_IN_RANGE, ERR_BUSY, RESOURCE_ENERGY, BODYPART_COST } from 'game/constants';
 import { bodyCost, getTicksPerMove} from "./globalFunctions";
 
@@ -26,7 +26,8 @@ Creep.prototype.getTicksPerMove = function() {return getTicksPerMove(this.body.m
 
 export enum CreepRole {
     COLLECTOR = 'COLLECTOR',
-    WORKCOLLECTOR = 'WORKCOLLECTOR',
+    ROAMCOLLECTOR = 'ROAMCOLLECTOR',
+    WORKER = 'WORKER',
     FIGHTER = 'FIGHTER',
     RAIDER = 'RAIDER',
     HEALER = 'HEALER'
@@ -35,17 +36,18 @@ export enum CreepRole {
 export interface CustomCreep extends Creep { // interface extends Class
     role: CreepRole;
     flee(targets: (GameObject | Position)[], range: number): void;
-    //testFunc(num: number): number; // <- add a function
+    collect(targetDeposit: StructureSpawn, targetContainers: StructureContainer[]): void;
 }
 
 export function CustomCreep(creep: Creep, role: CreepRole): CustomCreep {
     var cc = creep as CustomCreep;
     cc.role = role;
     cc.flee = (targets: (GameObject | Position)[], range: number) => { _flee(cc, targets, range) };
+    cc.collect = (targetDeposit: StructureSpawn, targetContainers: StructureContainer[]) => { _collect(cc, targetDeposit, targetContainers) };
     return cc;
 }
 
-export function _flee(creep: Creep, targets: (GameObject | Position)[], range: number) {
+function _flee(creep: CustomCreep, targets: (GameObject | Position)[], range: number): void{
     const result = searchPath(
         creep,
         targets.map(i => ({ pos: i, range })),
@@ -54,6 +56,26 @@ export function _flee(creep: Creep, targets: (GameObject | Position)[], range: n
     if (result.path.length > 0) {
         const direction = getDirection(result.path[0].x - creep.x, result.path[0].y - creep.y);
         creep.move(direction);
+    }
+}
+
+function _collect(creep: CustomCreep, targetDeposit: StructureSpawn, targetContainers: StructureContainer[]): void {
+    if(!creep.store.getCapacity(RESOURCE_ENERGY)){
+        console.log("Collect() called on creep without Capacity, id: ", creep.id, ", role: ", creep.role );
+        return;
+    }
+    if (creep.store.getFreeCapacity(RESOURCE_ENERGY)) {
+        let nonEmptyContainers = targetContainers.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0);
+        let targetContainer = creep.findClosestByPath(nonEmptyContainers);
+        if (targetContainer) {
+            if (creep.withdraw(targetContainer, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+                creep.moveTo(targetContainer);
+            }
+        }
+    }else{
+        if (creep.transfer(targetDeposit, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+            creep.moveTo(targetDeposit);
+        }
     }
 }
 
