@@ -11,7 +11,7 @@ const enemySpawn = getObjectsByPrototype(StructureSpawn).find(i => !i.my)!;
 
 // defined constants
 const maxBodyCost = 1000;
-const waitEngageTicks = 250;
+const waitEngageTicks = 270;
 const fleeDistance = 5;
 const numberOfCollectors = 3;
 const numberOfRaiders = 3;
@@ -86,11 +86,11 @@ function runCreeps() {
 
     for (var creep of myCreeps) {
         // Creep behaviours:
-        // Collector: Will look for nearest non-empty container, and deposit energy into the spawn
-            // TODO: Flee enemies,  if all 3 starting containers are empty, changes role to Roam Collector
-        // Roam Collector: Will look for nearest non-base container (ticksToDecay != null), and deposit in spawn
-            // TODO: Deposit in extension, withdraw and drop energy on ground before expiration of container, Flee enemies
-        // Worker: Gathers energy from nearest non-empty container, and builds nearest construction site, if there are no construction sites behaves same as a roam collector.
+        // Collector: Will look for nearest non-empty container, and deposit energy into the spawn, flees from enemies
+            // TODO: if all 3 starting containers are empty, changes role to Roam Collector
+        // Roam Collector: Will look for nearest non-base container (ticksToDecay != null), and deposit in spawn, flees from enemies
+            // TODO: Deposit in extension, withdraw and drop energy on ground before expiration of container
+        // Worker: Gathers energy from nearest non-empty container, and builds nearest construction site, flees from enemies, if there are no construction sites behaves same as a roam collector.
             // TODO: 
         // Fighter: Attacks nearest hostile creep
             // TODO: Attack lowest health enemy in range
@@ -100,17 +100,30 @@ function runCreeps() {
 
         switch (creep.role) {
             case CreepRole.COLLECTOR:
-                creep.collect(mySpawn, containers.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0));
+                var closestEnemy = creep.findClosestByRange(enemyCreeps);
+                if (closestEnemy && (creep.getRangeTo(closestEnemy) < 4)){
+                    creep.flee(enemyCreeps, fleeDistance);
+                }else{
+                    creep.collectAndDeliver(mySpawn, containers);
+                }
                 break;
 
             case CreepRole.ROAMCOLLECTOR:
-                creep.collect(mySpawn, containers.filter(c => ((c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0 ) && (c.ticksToDecay != null) ));
+                var closestEnemy = creep.findClosestByRange(enemyCreeps);
+                if (closestEnemy && (creep.getRangeTo(closestEnemy) < 4)){
+                    creep.flee(enemyCreeps, fleeDistance);
+                }else{
+                    creep.collectAndDeliver(mySpawn, containers.filter(c =>c.ticksToDecay != null));
+                }
                 break;
 
             case CreepRole.WORKER:
-                if (myConstructionSites.length > 0){
+                var closestEnemy = creep.findClosestByRange(enemyCreeps);
+                if (closestEnemy && (creep.getRangeTo(closestEnemy) < 4)){
+                    creep.flee(enemyCreeps, fleeDistance);
+                }else if (myConstructionSites.length > 0){
                     if (creep.store.getUsedCapacity(RESOURCE_ENERGY) == 0) {
-                        creep.collect(mySpawn, containers.filter(c => ((c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0 )));
+                        creep.collectAndDeliver(mySpawn, containers.filter(c => ((c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0 )));
                     }else{
                         target = creep.findClosestByRange(myConstructionSites);
                         if(target){
@@ -122,7 +135,7 @@ function runCreeps() {
                         creep.withdraw(creep.findClosestByRange(containers.filter(c => ((c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0 ))), RESOURCE_ENERGY);
                     }
                 }else{
-                    creep.collect(mySpawn, containers.filter(c => ((c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0 ) && (c.ticksToDecay != null) ));
+                    creep.collectAndDeliver(mySpawn, containers.filter(c => ((c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0 ) && (c.ticksToDecay != null) ));
                 }
                 break;
 
@@ -199,26 +212,26 @@ function runCreeps() {
 function spawnCreeps() {
     if (!mySpawn.spawning) { // need to patch the interface for StructureSpawn in typings in order to have access to spawning.
         // Current logic
-        // creep 1,2,3    COLLECTOR
-        // creep 4      WORKER
-        // creep 5,6    ROAMCOLLECTOR
-        // creep 7,8,9  RAIDER
-        // creep 10,11   FIGHTER
-        // creep 12,13  HEALER
+        // creep 1,2    COLLECTOR
+        // creep 3      WORKER
+        // creep 4,5    ROAMCOLLECTOR
+        // creep 6,7,8  RAIDER
+        // creep 9,10   FIGHTER
+        // creep 11,12  HEALER
         // creep ...    FIGHTER
 
         var makeRole: CreepRole | null = null;
-        if(mySpawnedCreepCount < 3){
+        if(mySpawnedCreepCount < 2){
             makeRole = CreepRole.COLLECTOR;
-        }else if(mySpawnedCreepCount < 4){
+        }else if(mySpawnedCreepCount < 3){
             makeRole = CreepRole.WORKER;
-        }else if(mySpawnedCreepCount < 6){
+        }else if(mySpawnedCreepCount < 5){
             makeRole = CreepRole.ROAMCOLLECTOR;
-        }else if(mySpawnedCreepCount < 9){
+        }else if(mySpawnedCreepCount < 8){
             makeRole = CreepRole.RAIDER;
-        }else if(mySpawnedCreepCount < 11){
+        }else if(mySpawnedCreepCount < 10){
             makeRole = CreepRole.FIGHTER;
-        }else if(mySpawnedCreepCount < 13){
+        }else if(mySpawnedCreepCount < 12){
             makeRole = CreepRole.HEALER;
         }else{
             makeRole = CreepRole.FIGHTER;

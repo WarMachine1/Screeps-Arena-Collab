@@ -36,14 +36,14 @@ export enum CreepRole {
 export interface CustomCreep extends Creep { // interface extends Class
     role: CreepRole;
     flee(targets: (GameObject | Position)[], range: number): void;
-    collect(targetDeposit: StructureSpawn, targetContainers: StructureContainer[]): void;
+    collectAndDeliver(targetDeposit: StructureSpawn, targetContainers: StructureContainer[]): void;
 }
 
 export function CustomCreep(creep: Creep, role: CreepRole): CustomCreep {
     var cc = creep as CustomCreep;
     cc.role = role;
     cc.flee = (targets: (GameObject | Position)[], range: number) => { _flee(cc, targets, range) };
-    cc.collect = (targetDeposit: StructureSpawn, targetContainers: StructureContainer[]) => { _collect(cc, targetDeposit, targetContainers) };
+    cc.collectAndDeliver = (targetDeposit: StructureSpawn, targetContainers: StructureContainer[]) => { _collectAndDeliver(cc, targetDeposit, targetContainers) };
     return cc;
 }
 
@@ -59,7 +59,7 @@ function _flee(creep: CustomCreep, targets: (GameObject | Position)[], range: nu
     }
 }
 
-function _collect(creep: CustomCreep, targetDeposit: StructureSpawn, targetContainers: StructureContainer[]): void {
+function _collectAndDeliver(creep: CustomCreep, targetDeposit: StructureSpawn, targetContainers: StructureContainer[]): void {
     if(!creep.store.getCapacity(RESOURCE_ENERGY)){
         console.log("Collect() called on creep without Capacity, id: ", creep.id, ", role: ", creep.role );
         return;
@@ -67,14 +67,22 @@ function _collect(creep: CustomCreep, targetDeposit: StructureSpawn, targetConta
     if (creep.store.getFreeCapacity(RESOURCE_ENERGY)) {
         let nonEmptyContainers = targetContainers.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0);
         let targetContainer = creep.findClosestByPath(nonEmptyContainers);
-        if (targetContainer) {
-            if (creep.withdraw(targetContainer, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+        if(targetContainer){
+            if (creep.getRangeTo(targetContainer) > 1) {
                 creep.moveTo(targetContainer);
+            }else{
+                creep.withdraw(targetContainer, RESOURCE_ENERGY);
+                creep.moveTo(targetDeposit);
             }
         }
     }else{
-        if (creep.transfer(targetDeposit, RESOURCE_ENERGY) == ERR_NOT_IN_RANGE) {
+        if (creep.getRangeTo(targetDeposit) > 1) {
             creep.moveTo(targetDeposit);
+        }else{
+            let nonEmptyContainers = targetContainers.filter(c => (c.store.getUsedCapacity(RESOURCE_ENERGY) ?? 0) > 0);
+            let targetContainer = creep.findClosestByPath(nonEmptyContainers);
+            creep.transfer(targetDeposit, RESOURCE_ENERGY)
+            creep.moveTo(targetContainer);
         }
     }
 }
