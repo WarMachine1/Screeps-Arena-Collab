@@ -53,6 +53,8 @@ export function loop() {
 
 function firstTickSetup() {
     if (isFirstTick()) {
+        console.log('Starting up!')
+
         for (const role in creepBodies) {
             const bodyParts = creepBodies[role as CreepRole]; // Get the body part array for the role
             if (bodyCost(bodyParts) > maxBodyCost) {
