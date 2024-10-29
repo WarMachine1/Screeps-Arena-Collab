@@ -89,10 +89,10 @@ function runCreeps() {
         // TODO: Deposit in extension, withdraw and drop energy on ground before expiration of container
     // Worker: Gathers energy from nearest non-empty container, and builds nearest construction site, flees from enemies, if there are no construction sites behaves same as a roam collector.
         // TODO: 
-    // Fighter: Attacks nearest hostile creep
-        // TODO: Attack lowest health enemy in range
-    // Raider: Ranged attacker, will try to stay at range 3 of the closest enemy
-        // TODO: Attack Lowest health enemy in range
+    // Fighter: Attacks nearest hostile creep, selecting the lowest health one
+        // TODO: 
+    // Raider: Ranged attacker, will try to stay at range 3 of the closest enemy, selecting the lowest health enemy in range
+        // TODO: 
     // Healer: Heals healer/attack creeps, will move to closest damaged creep, otherwise creep which is closest to hostile spawn, also flees from enemies
     for (var creep of myCreeps) {
 
@@ -121,7 +121,7 @@ function runCreeps() {
 
 function runCollectorCreep(creep: CustomCreep){
     var closestEnemy = creep.findClosestByRange(enemyCreeps);
-    if (closestEnemy && (creep.getRangeTo(closestEnemy) < 4)){
+    if (closestEnemy && (creep.getRangeTo(closestEnemy) < 5)){
         creep.flee(enemyCreeps, fleeDistance);
     }else{
         creep.collectAndDeliver(mySpawn, containers);
@@ -130,7 +130,7 @@ function runCollectorCreep(creep: CustomCreep){
 
 function runRoamCollectorCreep(creep: CustomCreep){
     var closestEnemy = creep.findClosestByRange(enemyCreeps);
-    if (closestEnemy && (creep.getRangeTo(closestEnemy) < 4)){
+    if (closestEnemy && (creep.getRangeTo(closestEnemy) < 5)){
         creep.flee(enemyCreeps, fleeDistance);
     }else{
         creep.collectAndDeliver(mySpawn, containers.filter(c =>c.ticksToDecay != null));
@@ -140,7 +140,7 @@ function runRoamCollectorCreep(creep: CustomCreep){
 function runWorkerCreep(creep: CustomCreep){
     var target: ConstructionSite;
     var closestEnemy = creep.findClosestByRange(enemyCreeps);
-    if (closestEnemy && (creep.getRangeTo(closestEnemy) < 4)){
+    if (closestEnemy && (creep.getRangeTo(closestEnemy) < 5)){
         creep.flee(enemyCreeps, fleeDistance);
     }else if (myConstructionSites.length > 0){
         if (creep.store.getUsedCapacity(RESOURCE_ENERGY) == 0) {
@@ -231,7 +231,7 @@ function runHealerCreep(creep: CustomCreep){
     creep.heal(healtarget); // melee heal will overwrite ranged heal if available, due to priority
 
     // avoid enemies if they are too close
-    if (closestEnemy && (creep.getRangeTo(closestEnemy) < 4)){
+    if (closestEnemy && (creep.getRangeTo(closestEnemy) < 5)){
         creep.flee(enemyCreeps, fleeDistance);
     }else if(healtarget){ // move to the closest damaged creep if it exists
         creep.moveTo(healtarget);
